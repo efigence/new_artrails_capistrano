@@ -1,0 +1,8 @@
+sudo: false
+language: ruby
+rvm:
+  - 2.1.1
+before_install:
+  - gem install bundler -v 1.10.5 --no-doc
+install:
+  - 'travis_retry bundle install'
