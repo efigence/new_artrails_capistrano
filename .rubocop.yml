@@ -1,0 +1,37 @@
+require: rubocop-rspec
+
+# Use this to ingore current violations (and fix them later) run:
+# bundle exec rubocop --auto-gen-config
+inherit_from: .rubocop_todo.yml
+
+# https://github.com/bbatsov/rubocop/blob/master/config/default.yml
+
+AllCops:
+  DisplayCopNames: true
+  EnabledByDefault: true
+  TargetRubyVersion: 2.4
+
+Metrics/LineLength:
+  Max: 120
+
+Metrics/BlockLength:
+  Exclude:
+    - 'Guardfile'
+    - '**/*_spec.rb'
+    - '*.gemspec'
+
+# https://github.com/bbatsov/rubocop/blob/master/config/enabled.yml
+
+Style/Documentation:
+  Enabled: false
+
+# https://github.com/bbatsov/rubocop/blob/master/config/disabled.yml
+
+Style/Copyright:
+  Enabled: false
+
+Style/MethodCallWithArgsParentheses:
+  Enabled: false
+
+Style/DocumentationMethod:
+  Enabled: false
