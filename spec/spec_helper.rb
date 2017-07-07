@@ -20,7 +20,6 @@ SimpleCov.start
 RUBY_ENV = 'test'
 
 require 'bundler/setup'
-require_relative '../env'
 require 'new_artrails_capistrano'
 
 RSpec.configure do |config|
