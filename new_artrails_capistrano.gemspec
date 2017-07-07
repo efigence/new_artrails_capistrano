@@ -37,8 +37,8 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = '~> 2.1.1'
 
-  spec.add_dependency 'capistrano', '>= 3.8', '< 4'
-  spec.add_dependency 'capistrano-rails', '>= 1.3', '< 2'
+  spec.add_dependency 'capistrano', '>= 3.1', '< 4'
+  spec.add_dependency 'capistrano-rails', '>= 1.1', '< 2'
 
   # http://yehudakatz.com/2010/12/16/clarifying-the-roles-of-the-gemspec-and-gemfile/
   spec.add_development_dependency 'bundler', '~> 1.10'
