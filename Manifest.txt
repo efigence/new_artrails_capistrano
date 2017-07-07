@@ -16,13 +16,13 @@ bin/console
 bin/setup
 config.reek
 lib/.keep
-lib/capistrano/artrails.rb
+lib/capistrano/new_artrails_capistrano.rb
 lib/capistrano/new_artrails_capistrano/version.rb
-lib/capistrano/tasks/artrails.rake
+lib/capistrano/tasks/new_artrails_capistrano.rake
 lib/new_artrails_capistrano.rb
 new_artrails_capistrano.gemspec
 rubocop_output.json
 spec/lib/.keep
-spec/lib/capistrano/artrails_spec.rb
+spec/lib/capistrano/new_artrails_capistrano_spec.rb
 spec/new_artrails_capistrano_spec.rb
 spec/spec_helper.rb
