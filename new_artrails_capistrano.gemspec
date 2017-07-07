@@ -2,11 +2,11 @@
 
 lib = File.expand_path('../lib', __FILE__)
 $LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'new_artrails_capistrano/version'
+require 'capistrano/new_artrails_capistrano/version'
 
 Gem::Specification.new do |spec|
   spec.name          = 'new_artrails_capistrano'
-  spec.version       = NewArtrailsCapistrano::VERSION
+  spec.version       = Capistrano::NewArtrailsCapistrano::VERSION
   spec.authors       = ['Marcin Kalita']
   spec.email         = ['rubyconvict@gmail.com']
 
@@ -26,8 +26,7 @@ Gem::Specification.new do |spec|
   end
 
   spec.files         =
-    # `git ls-files -z`.split("\x0")
-    # bundle exec manifest save
+    # bundle exec manifest save # based on `git ls-files -z`.split("\x0") and more (works only on staged files)
     File.read('Manifest.txt').split("\n").reject do |f|
       f.match(%r{^(test|spec|features)/})
     end

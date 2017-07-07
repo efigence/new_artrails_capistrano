@@ -17,7 +17,7 @@ else
 end
 SimpleCov.start
 
-RUBY_ENV = 'test'
+RUBY_ENV = 'test'.freeze
 
 require 'bundler/setup'
 require 'new_artrails_capistrano'

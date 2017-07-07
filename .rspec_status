@@ -1,4 +1,4 @@
 example_id                                  | status  | run_time        |
 ------------------------------------------- | ------- | --------------- |
 ./spec/lib/capistrano/artrails_spec.rb[1:1] | pending | 0.00001 seconds |
-./spec/new_artrails_capistrano_spec.rb[1:1] | passed  | 0.00051 seconds |
+./spec/new_artrails_capistrano_spec.rb[1:1] | passed  | 0.00041 seconds |
