@@ -1,6 +1,6 @@
 # Capistrano [![Gem Version](https://badge.fury.io/rb/new_artrails_capistrano.svg)](https://badge.fury.io/rb/new_artrails_capistrano) [![Build Status](https://travis-ci.org/efigence/new_artrails_capistrano.svg?branch=master)](https://travis-ci.org/efigence/new_artrails_capistrano) [![Coverage Status](https://coveralls.io/repos/github/efigence/new_artrails_capistrano/badge.svg?branch=master)](https://coveralls.io/github/efigence/new_artrails_capistrano?branch=master) [![Code Climate](https://codeclimate.com/github/efigence/new_artrails_capistrano/badges/gpa.svg)](https://codeclimate.com/github/efigence/new_artrails_capistrano)
 
-This gem is a library for having fun and profit.
+Capistrano 3 deployment using Rsync and a local Git repository.
 
 ## Dependencies
 
@@ -30,7 +30,6 @@ Or install it yourself as:
 ## Usage
 
 ```
-artrails = Capistrano::Artrails.new
 ```
 
 ## Development
@@ -41,14 +40,6 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ```
 $ guard #  require './lib/new_artrails_capistrano'
-```
-
-## Run script
-
-CAUTION: Using script arguments may not be safe
-
-```
-$ ruby init.rb 'argument'
 ```
 
 ## Contributing
