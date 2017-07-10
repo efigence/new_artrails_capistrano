@@ -304,3 +304,9 @@ tags
 !.vscode/extensions.json
 
 # End of https://www.gitignore.io/api/vim,git,ruby,macos,linux,emacs,rubymine,sublimetext,rails,visualstudiocode
+
+# rspec failure tracking
+.rspec_status
+
+# Custom output
+rubocop_output.json
