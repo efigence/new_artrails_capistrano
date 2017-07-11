@@ -8,11 +8,11 @@ require 'capistrano/new_artrails_capistrano/helpers'
 include Capistrano::NewArtrailsCapistrano::Helpers
 include Capistrano::DSL::NewArtrailsCapistranoPaths
 
-remote_cache = lambda do
-  cache = fetch(:remote_cache)
-  cache = deploy_to + '/' + cache if cache && cache !~ /^\//
-  cache
-end
+# remote_cache = lambda do
+#   cache = fetch(:remote_cache)
+#   cache = deploy_to + '/' + cache if cache && cache !~ /^\//
+#   cache
+# end
 
 namespace :load do
   task :defaults do
@@ -64,6 +64,75 @@ end
 
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :new_artrails_capistrano do
+  task :setup do # |task|
+    on roles :app, exclude: :no_release do
+      # setup directories
+      dirs = [deploy_to, releases_path, shared_path]
+      # https://stackoverflow.com/a/4380894
+      # FIXME: undefined
+      # shared_children = %w(public/system log tmp/pids)
+      # dirs += shared_children.map { |d| File.join(shared_path, d) }
+      dirs += fetch(:linked_dirs).map { |d| File.join(shared_path, d) }
+      new_artrails_capistrano_run "mkdir -p #{dirs.join(' ')}"
+
+      # setup default configs
+
+      # FIXME: undefined
+      # current_task = task.name_with_args
+      #require 'byebug'
+      #byebug
+      # FIXME:
+      # servers = find_servers_for_task(current_task)
+      # servers.each do |server|
+      server = host
+        # FIXME:
+        # config_files.each do |cf|
+        fetch(:new_artrails_capistrano_config_files).each do |cf|
+          new_artrails_capistrano_run("mkdir -p #{shared_path}/config")
+          new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
+          new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
+          system("scp config/#{cf} #{local_user}@#{server}:#{shared_path}/config/#{cf}")
+        end
+      # end
+
+      # setup pids
+      # FIXME: j.w.
+      # servers = find_servers_for_task(current_task)
+      # servers.each do |server|
+        new_artrails_capistrano_run("mkdir -p #{shared_path}/pids")
+      # end
+
+      # uprawnienia
+      unless dir_exists?(deploy_to)
+        new_artrails_capistrano_run "sudo -u mongrel chmod -R g+rw #{deploy_to}"
+        new_artrails_capistrano_run "sudo -u mongrel chgrp -R mongrel #{deploy_to}"
+      end
+
+      # repository_cache
+      unless dir_exists?(repository_cache)
+        new_artrails_capistrano_run "pwd && mkdir -p #{shared_path}/#{repository_cache}"
+        # new_artrails_capistrano_run "chgrp -R mongrel #{shared_path}/#{repository_cache}"
+        # new_artrails_capistrano_run "chmod g+w #{shared_path}/#{repository_cache}"
+      end
+
+      # log
+      new_artrails_capistrano_run "mkdir -p /var/log/mongrel/#{fetch(:new_artrails_capistrano_log_dir_name)}"
+    end
+  end
+
+
+
+
+
+
+
+
+
+
+
+
+
+  #-------------------------------------------------
   task :check do
     # nothing to check, but expected by framework
   end

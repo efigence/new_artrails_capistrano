@@ -7,12 +7,12 @@ require 'capistrano/new_artrails_capistrano/version'
 Gem::Specification.new do |spec|
   spec.name          = 'new_artrails_capistrano'
   spec.version       = Capistrano::NewArtrailsCapistrano::VERSION
-  spec.authors       = ['Marcin Kalita']
-  spec.email         = ['rubyconvict@gmail.com']
+  spec.authors       = ['Marcin Kalita', 'Rafał Lisowski']
+  spec.email         = ['rubyconvict@gmail.com', 'lisukorin@gmail.com']
 
-  spec.summary       = 'Capistrano 3 deployment using Rsync and a local Git repository.'
+  spec.summary       = 'Capistrano 3 deployment using Rsync, a local Git repository and sudo as user.'
   spec.description   = 'This gem is a viable alternative to Git deployments ' \
-    'on production machines.'
+    'on production machines. Commands are run under a different user than the `deploy` user.'
   spec.homepage      = 'https://github.com/efigence/new_artrails_capistrano'
   spec.license       = 'MIT'
 
