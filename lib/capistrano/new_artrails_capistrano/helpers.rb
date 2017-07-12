@@ -7,9 +7,9 @@ module Capistrano
         "#{fetch(:new_artrails_capistrano_sudo_as)}" || 'deploy'
       end
 
-      # def file_exists?(path)
-      #   test "[ -e #{path} ]"
-      # end
+      def file_exists?(path)
+        test "[ -e #{path} ]"
+      end
 
       def dir_exists?(path)
         test "[ -d #{path} ]"

@@ -151,43 +151,14 @@ end
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :deploy do
   namespace :bundler do
-    desc <<-DESC
-          Install the current Bundler environment. By default, gems will be \
-          installed to the shared/bundle path. Gems in the development and \
-          test group will not be installed. The install command is executed \
-          with the --deployment and --quiet flags.
-
-          By default, bundler will not be run on servers with no_release: true.
-
-          You can override any of these defaults by setting the variables shown below.
-
-            set :bundle_roles, :all
-
-            set :bundle_servers, -> { release_roles(fetch(:bundle_roles)) }
-            set :bundle_binstubs, -> { shared_path.join('bin') }
-            set :bundle_gemfile, -> { release_path.join('Gemfile') }
-            set :bundle_path, -> { shared_path.join('bundle') }
-            set :bundle_without, %w{development test}.join(' ')
-            set :bundle_flags, '--deployment --quiet'
-            set :bundle_jobs, nil
-            set :bundle_env_variables, {}
-            set :bundle_clean_options, ""
-      DESC
     task :install do
       on fetch(:bundle_servers) do
         within release_path do
           with fetch(:bundle_env_variables, {}) do
             require 'byebug'
             byebug
-            options = []
-            options << "--gemfile #{fetch(:bundle_gemfile)}" if fetch(:bundle_gemfile)
-            options << "--path #{fetch(:bundle_path)}" if fetch(:bundle_path)
-            unless test(:bundle, :check, *options)
-              options << "--binstubs #{fetch(:bundle_binstubs)}" if fetch(:bundle_binstubs)
-              options << "--jobs #{fetch(:bundle_jobs)}" if fetch(:bundle_jobs)
-              options << "--without #{fetch(:bundle_without)}" if fetch(:bundle_without)
-              options << "#{fetch(:bundle_flags)}" if fetch(:bundle_flags)
-              execute :bundle, :install, *options
+            # set :rails_env, :staging
+            fetch(:rails_env)
             end
           end
         end
@@ -297,7 +268,12 @@ namespace :deploy do
           new_artrails_capistrano_run("mkdir -p #{shared_path}/config")
           new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
           new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
-          system("scp config/#{cf} #{local_user}@#{server}:#{shared_path}/config/#{cf}")
+          cf_path = "#{local_user}@#{server}:#{shared_path}/config/#{cf}"
+          if file_exists?(cf_path)
+            puts "Skip. File exists: #{cf_path}"
+          else
+            system("scp config/#{cf} #{cf_path}")
+          end
         end
       # end
 
@@ -313,11 +289,10 @@ namespace :deploy do
       new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
 
       # repository_cache
-      new_artrails_capistrano_run "pwd && mkdir -p #{deploy_to}/#{repository_cache}"
-      unless dir_exists?("#{deploy_to}/#{repository_cache}")
-        new_artrails_capistrano_run "chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}/#{repository_cache}"
-        new_artrails_capistrano_run "chmod g+w #{deploy_to}/#{repository_cache}"
-      end
+      new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{repository_cache}"
+      new_artrails_capistrano_run "pwd && mkdir #{deploy_to}/#{repository_cache}"
+      new_artrails_capistrano_run "chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}/#{repository_cache}"
+      new_artrails_capistrano_run "chmod g+w #{deploy_to}/#{repository_cache}"
 
       # log
       new_artrails_capistrano_run "mkdir -p /var/log/#{fetch(:new_artrails_capistrano_sudo_as)}/#{fetch(:new_artrails_capistrano_log_dir_name)}"
