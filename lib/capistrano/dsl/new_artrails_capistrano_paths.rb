@@ -4,10 +4,10 @@ module Capistrano
   module DSL
     module NewArtrailsCapistranoPaths
       def new_artrails_capistrano_remote_cache
-        "cached-copy-#{fetch(:local_user)}"
+        "shared/cached-copy-#{fetch(:local_user) || 'deploy'}"
       end
       def new_artrails_capistrano_front_remote_cache
-        "front-cached-copy-#{fetch(:local_user)}"
+        "shared/front-cached-copy-#{fetch(:local_user) || 'deploy'}"
       end
     end
   end

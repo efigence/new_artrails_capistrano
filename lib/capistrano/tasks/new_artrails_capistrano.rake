@@ -150,6 +150,50 @@ end
 
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :deploy do
+  namespace :bundler do
+    desc <<-DESC
+          Install the current Bundler environment. By default, gems will be \
+          installed to the shared/bundle path. Gems in the development and \
+          test group will not be installed. The install command is executed \
+          with the --deployment and --quiet flags.
+
+          By default, bundler will not be run on servers with no_release: true.
+
+          You can override any of these defaults by setting the variables shown below.
+
+            set :bundle_roles, :all
+
+            set :bundle_servers, -> { release_roles(fetch(:bundle_roles)) }
+            set :bundle_binstubs, -> { shared_path.join('bin') }
+            set :bundle_gemfile, -> { release_path.join('Gemfile') }
+            set :bundle_path, -> { shared_path.join('bundle') }
+            set :bundle_without, %w{development test}.join(' ')
+            set :bundle_flags, '--deployment --quiet'
+            set :bundle_jobs, nil
+            set :bundle_env_variables, {}
+            set :bundle_clean_options, ""
+      DESC
+    task :install do
+      on fetch(:bundle_servers) do
+        within release_path do
+          with fetch(:bundle_env_variables, {}) do
+            require 'byebug'
+            byebug
+            options = []
+            options << "--gemfile #{fetch(:bundle_gemfile)}" if fetch(:bundle_gemfile)
+            options << "--path #{fetch(:bundle_path)}" if fetch(:bundle_path)
+            unless test(:bundle, :check, *options)
+              options << "--binstubs #{fetch(:bundle_binstubs)}" if fetch(:bundle_binstubs)
+              options << "--jobs #{fetch(:bundle_jobs)}" if fetch(:bundle_jobs)
+              options << "--without #{fetch(:bundle_without)}" if fetch(:bundle_without)
+              options << "#{fetch(:bundle_flags)}" if fetch(:bundle_flags)
+              execute :bundle, :install, *options
+            end
+          end
+        end
+      end
+    end
+  end
   namespace :isItWorking do
     task :activate do
       on roles :web, exclude: :no_release do
@@ -265,10 +309,8 @@ namespace :deploy do
       # end
 
       # uprawnienia
-      unless dir_exists?(deploy_to)
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod -R g+rw #{deploy_to}"
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
-      end
+      new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod -R g+rw #{deploy_to}"
+      new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
 
       # repository_cache
       new_artrails_capistrano_run "pwd && mkdir -p #{deploy_to}/#{repository_cache}"
