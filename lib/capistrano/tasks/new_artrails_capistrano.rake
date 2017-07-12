@@ -159,7 +159,6 @@ namespace :deploy do
             byebug
             # set :rails_env, :staging
             fetch(:rails_env)
-            end
           end
         end
       end
