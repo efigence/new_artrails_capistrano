@@ -21,6 +21,33 @@ module Capistrano
         fetch(:remote_cache) || 'shared/cached-copy-deploy'
       end
 
+      def new_artrails_capistrano_detect_manifest_path
+         %w(
+           .sprockets-manifest*
+           manifest*.*
+         ).each do |pattern|
+           candidate = release_path.join('public', fetch(:assets_prefix), pattern)
+           return capture(:ls, candidate).strip.gsub(/(\r|\n)/,' ') if test(:ls, candidate)
+         end
+         msg = 'Rails assets manifest file not found.'
+         warn msg
+         # Rails 5 only
+         # fail Capistrano::FileNotFound, msg
+       end
+
+      def new_artrails_capistrano_run_with_rvm_in_release_path(cmd, options={}, &block)
+        joined_cmd =<<-CMD
+          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} sh -c "
+          source\\\\ '/usr/local/rvm/scripts/rvm' &&
+          cd #{fetch(:release_path)} &&
+          RAILS_ENV=#{fetch(:rails_env)} #{cmd}
+          "
+        CMD
+        new_artrails_capistrano_run(joined_cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' '), options) do
+          block.call
+        end
+      end
+
       def new_artrails_capistrano_run(cmd, options={}, &block)
         # BEGIN: hack, invoke almost *all* commands as mongrel user
         if cmd.include?('db:migrate')

@@ -60,6 +60,8 @@ namespace :load do
     # do lokalnych adresow dostajemy sie bez proxy
     set :proxy_host, nil # "proxy.non.3dart.com"
     set :proxy_port, nil # "3128"
+
+    set :app_address, nil
   end
 end
 
@@ -112,7 +114,14 @@ namespace :artrails do
       puts "Sleeping 4 seconds..."
       sleep( 3 )
       puts "Asking is it working..."
-      http = Net::HTTP::Proxy(proxy_host, proxy_port).start(*app_address.split(':'))
+      if fetch(:app_address).to_s[/8080/]
+        proxy_host = nil
+        proxy_port = nil
+      else
+        proxy_host = fetch(:proxy_host)
+        proxy_port = fetch(:proxy_port)
+      end
+      http = Net::HTTP::Proxy(proxy_host, proxy_port).start(*fetch(:app_address).split(':'))
       path='/isItWorking'
       resp, data = http.get(path)
       puts "#{resp.code} #{resp.message} : #{data}"
@@ -135,23 +144,49 @@ namespace :maintenance do
   desc "Maintenance start"
   task :on do
     on roles :web do
-      on_rollback { run "rm #{current_path}/tmp/maintenance.yml" }
-      page = File.read("config/maintenance.yml")
-      put page, "#{current_path}/tmp/maintenance.yml"
-      new_artrails_capistrano_run "chmod g+w #{current_path}/tmp/maintenance.yml"
+      # not for Cap 3
+      # on_rollback { new_artrails_capistrano_run "rm #{current_path}/tmp/maintenance.yml" }
+      if test "[ -f #{release_path}/config/maintenance.yml ]"
+        new_artrails_capistrano_run "cp #{release_path}/config/maintenance.yml #{current_path}/tmp/maintenance.yml"
+      end
     end
   end
 
   desc "Maintenance stop"
   task :off do
     on roles :web do
-      new_artrails_capistrano_run "rm #{fetch(:latest_release_directory)}/tmp/maintenance.yml"
+      new_artrails_capistrano_run "rm -rf #{fetch(:latest_release_directory)}/tmp/maintenance.yml"
     end
   end
 end
 
+# can't override this, this clears the content
+Rake::Task["deploy:set_current_revision"].clear
+
+
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :deploy do
+  desc "Clean up old releases"
+  task :cleanup do
+    on release_roles :all do |host|
+      releases = capture(:ls, "-x", releases_path).split
+      if !(releases.all? { |e| /^\d{14}$/ =~ e })
+        warn t(:skip_cleanup, host: host.to_s)
+      elsif releases.count >= fetch(:keep_releases)
+        info t(:keeping_releases, host: host.to_s, keep_releases: fetch(:keep_releases), releases: releases.count)
+        directories = (releases - releases.last(fetch(:keep_releases)))
+        if directories.any?
+          directories_str = directories.map do |release|
+            releases_path.join(release)
+          end.join(" ")
+          # execute :rm, "-rf", directories_str
+          new_artrails_capistrano_run "rm -rf #{directories_str}" if directories_str.to_s[/\/releases\//]
+        else
+          info t(:no_old_releases, host: host.to_s, keep_releases: fetch(:keep_releases))
+        end
+      end
+    end
+  end
   # namespace :bundler do
   #   task :install do
   #     on fetch(:bundle_servers) do
@@ -164,7 +199,74 @@ namespace :deploy do
   #     end
   #   end
   # end
+  Rake::Task["deploy:log_revision"].clear_actions
+  desc "Log details of the deploy"
+  task :log_revision do
+    on release_roles(:all) do
+      within releases_path do
+        # execute :echo, %Q{"#{revision_log_message}" >> #{revision_log}}
+        execute :echo, %Q{"#{revision_log_message}" >> #{revision_log}}
+        # require 'shellwords'
+        # new_artrails_capistrano_run "echo '#{Shellwords.escape(revision_log_message)}' >> #{revision_log}"
+        execute :chmod, "g+w #{revision_log}"
+      end
+    end
+  end
+  namespace :bundler do
+    task :install do
+      on fetch(:bundle_servers) do
+        within release_path do
+          with fetch(:bundle_env_variables, {}) do
+            options = []
+            options << "--gemfile #{fetch(:bundle_gemfile)}" if fetch(:bundle_gemfile)
+            options << "--path #{fetch(:bundle_path)}" if fetch(:bundle_path)
+            unless test(:bundle, :check, *options)
+              options << "--binstubs #{fetch(:bundle_binstubs)}" if fetch(:bundle_binstubs)
+              options << "--jobs #{fetch(:bundle_jobs)}" if fetch(:bundle_jobs)
+              options << "--without #{fetch(:bundle_without)}" if fetch(:bundle_without)
+              options << "#{fetch(:bundle_flags)}" if fetch(:bundle_flags)
+              # execute :bundle, :install, *options
+              new_artrails_capistrano_run_with_rvm_in_release_path "bundle install #{options.join(' ')}"
+            end
+          end
+        end
+      end
+    end
+
+    desc "Remove unused gems installed by bundler"
+    task :clean do
+      on fetch(:bundle_servers) do
+        within release_path do
+          with fetch(:bundle_env_variables, {}) do
+            # execute :bundle, :clean, fetch(:bundle_clean_options, "")
+            new_artrails_capistrano_run "bundle clean #{fetch(:bundle_clean_options, "")}"
+          end
+        end
+      end
+    end
+  end
+
+
   namespace :symlink do
+    Rake::Task["deploy:symlink:linked_dirs"].clear
+    desc "Symlink linked directories"
+    task :linked_dirs do
+      next unless any? :linked_dirs
+      on release_roles :all do
+        # execute :mkdir, "-p", linked_dir_parents(release_path)
+        new_artrails_capistrano_run "mkdir -p #{linked_dir_parents(release_path).map(&:to_s).join(' ')}"
+
+        fetch(:linked_dirs).each do |dir|
+          target = release_path.join(dir)
+          source = shared_path.join(dir)
+          next if test "[ -L #{target} ]"
+          # execute :rm, "-rf", target if test "[ -d #{target} ]"
+          new_artrails_capistrano_run "rm -rf #{target.to_s}" if test "[ -d #{target.to_s} ]"
+          # execute :ln, "-s", source, target
+          new_artrails_capistrano_run "ln -s #{source.to_s} #{target.to_s}"
+        end
+      end
+    end
     desc "Symlink release to current"
     task :release do
       on release_roles :all do
@@ -242,55 +344,73 @@ namespace :deploy do
     task :symlink do
       on roles :web, exclude: :no_release do
         cmd =<<-CMD
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} rm -rf #{release_path}/public/#{assets_prefix} &&
+          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} rm -rf #{release_path}/public/#{fetch(:assets_prefix)} &&
           sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{release_path}/public &&
           sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{shared_path}/assets &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} ln -s #{shared_path}/assets #{release_path}/public/#{assets_prefix} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{release_path}/public/#{assets_prefix} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/public/#{assets_prefix} &&
+          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} ln -s #{shared_path}/assets #{release_path}/public/#{fetch(:assets_prefix)} &&
+          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{release_path}/public/#{fetch(:assets_prefix)} &&
+          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/public/#{fetch(:assets_prefix)} &&
           sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{shared_path}/assets &&
           sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/assets
         CMD
         new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
       end
     end
+    Rake::Task['deploy:assets:backup_manifest'].clear_actions
     task :backup_manifest do
       on release_roles(fetch(:assets_roles)) do
         within release_path do
           backup_path = release_path.join('assets_manifest_backup')
 
-          # execute :mkdir, '-p', backup_path
-          new_artrails_capistrano_run :mkdir, '-p', backup_path
-          # execute :cp,
-          new_artrails_capistrano_run :cp,
-            detect_manifest_path,
-            backup_path
-        end
-      end
-    end
+          target = new_artrails_capistrano_detect_manifest_path
 
-    task :restore_manifest do
-      on release_roles(fetch(:assets_roles)) do
-        within release_path do
-          target = detect_manifest_path
-          source = release_path.join('assets_manifest_backup', File.basename(target))
-          if test "[[ -f #{source} && -f #{target} ]]"
-            # execute :cp, source, target
-            new_artrails_capistrano_run :cp, source, target
+          # execute :mkdir, '-p', backup_path
+          new_artrails_capistrano_run "mkdir -p #{backup_path}"
+          # execute :cp,
+          #   detect_manifest_path,
+          #   backup_path
+          if test "[[ -f #{target} ]]"
+            new_artrails_capistrano_run "cp #{target} #{backup_path}"
           else
-            msg = 'Rails assets manifest file (or backup file) not found.'
+            msg = 'Rails assets manifest file not found.'
             warn msg
-            fail Capistrano::FileNotFound, msg
+            # FIXME: Rails 5 only
+            # fail Capistrano::FileNotFound, msg
           end
         end
       end
     end
+
+    Rake::Task['deploy:assets:restore_manifest'].clear_actions
+    task :restore_manifest do
+      on release_roles(fetch(:assets_roles)) do
+        within release_path do
+          target = new_artrails_capistrano_detect_manifest_path
+          source = release_path.join('assets_manifest_backup', File.basename(target))
+          if test "[[ -f #{source} && -f #{target} ]]"
+            # execute :cp, source, target
+            new_artrails_capistrano_run "cp #{source} #{target}"
+          else
+            msg = 'Rails assets manifest file (or backup file) not found.'
+            warn msg
+            # FIXME: Rails 5 only
+            # fail Capistrano::FileNotFound, msg
+          end
+        end
+      end
+    end
+
+    # TODO: https://github.com/capistrano/rails/blob/master/lib/capistrano/tasks/assets.rake
+
     # https://github.com/capistrano/rails/blob/f4befc4edc8b287e2317ccd1150c793fe337eebb/lib/capistrano/tasks/assets.rake#L64
+    Rake::Task['deploy:assets:precompile'].clear_actions
     task :precompile do
       on release_roles(fetch(:assets_roles)) do
         within release_path do
           with rails_env: fetch(:rails_env), rails_groups: fetch(:rails_assets_groups) do
             # execute :rake, "assets:precompile"
+            # require 'byebug'
+            # byebug
             cmd =<<-CMD
               sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} sh -c "
               source\\\\ '/usr/local/rvm/scripts/rvm' &&
@@ -398,7 +518,12 @@ namespace :deploy do
 
       # uprawnienia
       #unless dir_exists?(deploy_to)
-        new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{repository_cache}" # don't reject command below
+        if revision_log.to_s[/\.log\z/]
+          new_artrails_capistrano_run "pwd && rm -rf #{revision_log}" # don't reject command below
+        end
+        if repository_cache.to_s[/cached\-copy\-/]
+          new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{repository_cache}" # don't reject command below
+        end
         new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod -R g+rw #{deploy_to}"
         new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
       #end
@@ -571,19 +696,6 @@ namespace :deploy do
     end
   end
 
-  desc "Determine the revision that will be deployed"
-  task :set_current_revision do
-    on release_roles :all do
-      within repo_path do
-        with fetch(:git_environmental_variables) do
-          # set :current_revision, git_plugin.fetch_revision
-          puts "Doing nothing, again"
-        end
-      end
-    end
-  end
-
-
 
 
 
@@ -663,6 +775,8 @@ end
 # -----------------------------------------------------------------------------------------------------------------------------------
 # before 'deploy:finalize_update', 'deploy:assets:symlink'
 # nowe
+after 'deploy:publishing', 'deploy:restart'
+
 before 'deploy:updated', 'deploy:assets:symlink'
 # before "deploy:updated",  "maintenance:on" # maintenance for current version
 before "deploy:restart",      "maintenance:on" # maintenance for new version
@@ -670,7 +784,7 @@ before "deploy:restart",      "maintenance:on" # maintenance for new version
 after "deploy:updated",      "artrails:symlink:config"
 after "deploy:updated",      "artrails:symlink:uploads"
 
-after "deploy:updated",      "deploy:cleanup"
+# after "deploy:updated",      "deploy:cleanup"
 
 after "deploy:symlink:release",   "artrails:symlink:log"
 after "deploy:symlink:release",   "artrails:symlink:rights"
