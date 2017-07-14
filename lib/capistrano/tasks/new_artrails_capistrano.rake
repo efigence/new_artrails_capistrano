@@ -1,9 +1,19 @@
 # frozen_string_literal: true
 
 require 'rake'
-
+require 'capistrano/all'
+# require 'capistrano/setup'
+require 'capistrano/deploy'
+include Capistrano::DSL
+# require 'capistrano/rails'
+# require 'capistrano/bundler'
+require 'capistrano/rails/assets'
+# require 'capistrano/rails/migrations'
+require "capistrano/scm/git"
+install_plugin Capistrano::SCM::Git
 require 'capistrano/dsl/new_artrails_capistrano_paths'
 require 'capistrano/new_artrails_capistrano/helpers'
+require 'shellwords'
 
 include Capistrano::NewArtrailsCapistrano::Helpers
 include Capistrano::DSL::NewArtrailsCapistranoPaths
@@ -66,10 +76,23 @@ namespace :load do
 end
 
 namespace :artrails do
+  task :update_versions_html do
+    on roles :app, exclude: :no_release do |task|
+      versions_file = "#{shared_path}/versions.html"
+      revision_log_message_cleaned = %Q{#{revision_log_message}}
+      cmd = <<-CMD
+        sudo -iu #{new_artrails_capistrano_sudo_as} touch #{versions_file} &&
+        sudo -iu #{new_artrails_capistrano_sudo_as} chmod g+w #{versions_file} &&
+        sudo -iu #{new_artrails_capistrano_sudo_as} chgrp mongrel #{versions_file} &&
+        echo "#{revision_log_message_cleaned}<br />" >> #{versions_file} &&
+        sudo -iu #{new_artrails_capistrano_sudo_as} ln -fs #{versions_file} #{release_path}/public/versions.html
+      CMD
+      new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
+    end
+  end
   desc <<-DESC
     set symlinks for configs logs, set rights and check is it working
   DESC
-
   namespace :symlink do
     task :config do
       on roles :app, exclude: :no_release do |task|
@@ -85,14 +108,14 @@ namespace :artrails do
         # end
       end
     end
-
-    task :uploads do
-      on roles :app, exclude: :no_release do
-        new_artrails_capistrano_run "rm -rf #{release_path}/db/uploads"
-        new_artrails_capistrano_run "ln -s #{shared_path}/db/uploads #{release_path}/db/uploads"
-        new_artrails_capistrano_run "mkdir -p #{shared_path}/db/uploads/simple_captcha"
-      end
-    end
+    #
+    # task :uploads do
+    #   on roles :app, exclude: :no_release do
+    #     new_artrails_capistrano_run "rm -rf #{release_path}/db/uploads"
+    #     new_artrails_capistrano_run "ln -s #{shared_path}/db/uploads #{release_path}/db/uploads"
+    #     new_artrails_capistrano_run "mkdir -p #{shared_path}/db/uploads/simple_captcha"
+    #   end
+    # end
 
     task :log do
       on roles :app, exclude: :no_release do
@@ -264,7 +287,7 @@ namespace :deploy do
 
 
   namespace :symlink do
-    Rake::Task["deploy:symlink:linked_dirs"].clear
+    Rake::Task["deploy:symlink:linked_dirs"].clear_actions
     desc "Symlink linked directories"
     task :linked_dirs do
       next unless any? :linked_dirs
@@ -278,6 +301,25 @@ namespace :deploy do
           next if test "[ -L #{target} ]"
           # execute :rm, "-rf", target if test "[ -d #{target} ]"
           new_artrails_capistrano_run "rm -rf #{target.to_s}" if test "[ -d #{target.to_s} ]"
+          # execute :ln, "-s", source, target
+          new_artrails_capistrano_run "ln -s #{source.to_s} #{target.to_s}"
+        end
+      end
+    end
+    Rake::Task["deploy:symlink:linked_files"].clear_actions
+    desc "Symlink linked files"
+    task :linked_files do
+      next unless any? :linked_files
+      on release_roles :all do
+        # execute :mkdir, "-p", linked_file_dirs(release_path)
+        new_artrails_capistrano_run "mkdir -p #{linked_file_dirs(release_path).map(&:to_s).join(' ')}"
+
+        fetch(:linked_files).each do |file|
+          target = release_path.join(file)
+          source = shared_path.join(file)
+          next if test "[ -L #{target} ]"
+          # execute :rm, target if test "[ -f #{target} ]"
+          new_artrails_capistrano_run "rm -rf #{target.to_s}" if test "[ -f #{target.to_s} ]"
           # execute :ln, "-s", source, target
           new_artrails_capistrano_run "ln -s #{source.to_s} #{target.to_s}"
         end
@@ -357,21 +399,22 @@ namespace :deploy do
   end
 
   namespace :assets do
-    task :symlink do
-      on roles :web, exclude: :no_release do
-        cmd =<<-CMD
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} rm -rf #{release_path}/public/#{fetch(:assets_prefix)} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{release_path}/public &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{shared_path}/assets &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} ln -s #{shared_path}/assets #{release_path}/public/#{fetch(:assets_prefix)} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{release_path}/public/#{fetch(:assets_prefix)} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/public/#{fetch(:assets_prefix)} &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{shared_path}/assets &&
-          sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/assets
-        CMD
-        new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
-      end
-    end
+    # task :symlink do
+    #   on roles :web, exclude: :no_release do
+    #     cmd =<<-CMD
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} rm -rf #{release_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{release_path}/public &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} mkdir -p #{shared_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} ln -s #{shared_path}/assets #{release_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{release_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R  #{shared_path}/public/#{fetch(:assets_prefix)} &&
+    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/public/#{fetch(:assets_prefix)}
+    #     CMD
+    #     new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
+    #   end
+    # end
+    # Rails 5 only
     Rake::Task['deploy:assets:backup_manifest'].clear_actions
     task :backup_manifest do
       on release_roles(fetch(:assets_roles)) do
@@ -396,7 +439,7 @@ namespace :deploy do
         end
       end
     end
-
+    # Rails 5 only
     Rake::Task['deploy:assets:restore_manifest'].clear_actions
     task :restore_manifest do
       on release_roles(fetch(:assets_roles)) do
@@ -430,10 +473,10 @@ namespace :deploy do
             cmd =<<-CMD
               sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} sh -c "
               source\\\\ '/usr/local/rvm/scripts/rvm' &&
-              cd #{fetch(:latest_release_directory)} &&
-              RAILS_ENV=#{fetch(:rails_env)} #{fetch(:asset_env)} #{rake} assets:precompile &&
-              chmod g+w -R  #{shared_path}/assets &&
-              chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/assets
+              cd #{release_path} &&
+              RAILS_ENV=#{fetch(:rails_env)} #{fetch(:asset_env)} bundle exec rake assets:precompile &&
+              chmod g+w -R  #{shared_path}/public/#{fetch(:assets_prefix)} &&
+              chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/public/#{fetch(:assets_prefix)}
               "
             CMD
             new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
@@ -531,6 +574,7 @@ namespace :deploy do
       # FIXME: j.w.
       # servers = find_servers_for_task(current_task)
       # servers.each do |server|
+      # CUSTOM DIR!
         new_artrails_capistrano_run("mkdir -p #{shared_path}/pids")
       # end
 
@@ -692,6 +736,7 @@ namespace :deploy do
       # run "mkdir -p #{fetch :releases_path}"
     end
 
+    Rake::Task['git:set_current_revision'].clear_actions
     desc "Determine the revision that will be deployed"
     # task :set_current_revision do
     #   on release_roles :all do
@@ -790,14 +835,15 @@ end
 # -----------------------------------------------------------------------------------------------------------------------------------
 # before 'deploy:finalize_update', 'deploy:assets:symlink'
 # nowe
+after 'deploy:finished', 'artrails:update_versions_html'
 after 'deploy:publishing', 'deploy:restart'
 
-before 'deploy:updated', 'deploy:assets:symlink'
+# before 'deploy:updated', 'deploy:assets:symlink'
 # before "deploy:updated",  "maintenance:on" # maintenance for current version
 before "deploy:restart",      "maintenance:on" # maintenance for new version
 
 after "deploy:updated",      "artrails:symlink:config"
-after "deploy:updated",      "artrails:symlink:uploads"
+# after "deploy:updated",      "artrails:symlink:uploads"
 
 # after "deploy:updated",      "deploy:cleanup"
 
