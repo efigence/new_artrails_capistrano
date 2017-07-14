@@ -111,8 +111,8 @@ namespace :artrails do
 
   task :check_is_it_working do
     on roles :app, exclude: :no_release do
-      puts "Sleeping 4 seconds..."
-      sleep( 3 )
+      puts "Sleeping 5 seconds..."
+      sleep( 5 )
       puts "Asking is it working..."
       if fetch(:app_address).to_s[/8080/]
         proxy_host = nil
@@ -147,7 +147,7 @@ namespace :maintenance do
       # not for Cap 3
       # on_rollback { new_artrails_capistrano_run "rm #{current_path}/tmp/maintenance.yml" }
       if test "[ -f #{release_path}/config/maintenance.yml ]"
-        new_artrails_capistrano_run "cp #{release_path}/config/maintenance.yml #{current_path}/tmp/maintenance.yml"
+        new_artrails_capistrano_run "cp #{release_path}/config/maintenance.yml #{release_path}/tmp/maintenance.yml"
       end
     end
   end
@@ -155,17 +155,33 @@ namespace :maintenance do
   desc "Maintenance stop"
   task :off do
     on roles :web do
-      new_artrails_capistrano_run "rm -rf #{fetch(:latest_release_directory)}/tmp/maintenance.yml"
+      new_artrails_capistrano_run "rm -rf #{release_path}/tmp/maintenance.yml"
     end
   end
 end
 
-# can't override this, this clears the content
-Rake::Task["deploy:set_current_revision"].clear
-
-
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :deploy do
+  Rake::Task["deploy:set_current_revision"].clear_actions
+  desc "Place a REVISION file with the current revision SHA in the current release path"
+  task :set_current_revision  do
+    on release_roles(:all) do
+      # new_artrails_capistrano_run "echo \"#{fetch(:current_revision)}\" >> #{release_path}/REVISION"
+
+      # echo called twice on purpose, because only that way it works...
+      cmd =<<-CMD
+        sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} bash -c "
+        echo '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
+        echo -e '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
+        chmod g+w -R #{release_path}/REVISION &&
+        chgrp #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/REVISION
+        "
+      CMD
+      new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
+
+    end
+  end
+  Rake::Task["deploy:cleanup"].clear_actions
   desc "Clean up old releases"
   task :cleanup do
     on release_roles :all do |host|
@@ -283,12 +299,12 @@ namespace :deploy do
   namespace :isItWorking do
     task :activate do
       on roles :web, exclude: :no_release do
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} touch #{current_path}/tmp/isItWorking.txt"
+        new_artrails_capistrano_run "touch #{current_path}/tmp/isItWorking.txt"
       end
     end
     task :deactivate do
       on roles :web, exclude: :no_release do
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} rm #{current_path}/tmp/isItWorking.txt"
+        new_artrails_capistrano_run "rm -f #{current_path}/tmp/isItWorking.txt"
       end
     end
   end
@@ -473,6 +489,7 @@ namespace :deploy do
     end
   end
 
+# TODO # FIXME: override
   task :setup do # |task|
     on roles :app, exclude: :no_release do
       # setup directories
@@ -498,12 +515,13 @@ namespace :deploy do
         # config_files.each do |cf|
         fetch(:new_artrails_capistrano_config_files).each do |cf|
           new_artrails_capistrano_run("mkdir -p #{shared_path}/config")
-          new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
-          new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
-          cf_path = "#{local_user}@#{server}:#{shared_path}/config/#{cf}"
-          if file_exists?(cf_path)
-            puts "Skip. File exists: #{cf_path}"
+          if file_exists?("#{shared_path}/config/#{cf}")
+            puts "Skip. File exists: #{shared_path}/config/#{cf}"
           else
+            new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
+            new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
+            cf_path = "#{local_user}@#{server}:#{shared_path}/config/#{cf}"
+            puts "scp config/#{cf} #{cf_path}"
             system("scp config/#{cf} #{cf_path}")
           end
         end
@@ -686,11 +704,8 @@ namespace :deploy do
     # end
     task :set_current_revision do
       run_locally do
-        # Can't do that
-        # puts "Doing nothing"
         run_locally do
           set :current_revision, capture(:git, 'rev-parse', fetch(:branch))
-          puts "Current revision is: #{fetch(:current_revision)}"
         end
       end
     end
@@ -789,4 +804,6 @@ after "deploy:updated",      "artrails:symlink:uploads"
 after "deploy:symlink:release",   "artrails:symlink:log"
 after "deploy:symlink:release",   "artrails:symlink:rights"
 
-after "deploy:restart",          "artrails:check_is_it_working"
+after "maintenance:on", "deploy:isItWorking:deactivate"
+after "maintenance:off", "deploy:isItWorking:activate"
+after "maintenance:off", "artrails:check_is_it_working"
