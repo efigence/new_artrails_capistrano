@@ -13,9 +13,11 @@ require "capistrano/scm/git"
 install_plugin Capistrano::SCM::Git
 require 'capistrano/dsl/new_artrails_capistrano_paths'
 require 'capistrano/new_artrails_capistrano/helpers'
+require 'capistrano/new_artrails_capistrano/front_helpers'
 require 'shellwords'
 
 include Capistrano::NewArtrailsCapistrano::Helpers
+include Capistrano::NewArtrailsCapistrano::FrontHelpers
 include Capistrano::DSL::NewArtrailsCapistranoPaths
 
 remote_cache = lambda do
@@ -37,8 +39,7 @@ namespace :load do
     set :rsync_include, %w[]
     # http://www.comentum.com/rsync.html # -a --no-p --no-g --delete
     set :copy_command,  "rsync -a --no-p --no-g --delete" # "rsync --archive --acls --xattrs"
-    set :local_cache,   '.rsync_cache' # ".rsync_cache-#{fetch(:stage)}"
-    set :front_local_cache, '.front_rsync_cache' # ".front_rsync_cache-#{fetch(:stage)}"
+    set :local_cache,   "/tmp/.#{fetch(:application)}-rsync_cache" # ".rsync_cache-#{fetch(:stage)}"
 
     set :repo_url, File.expand_path('.')
 
@@ -64,7 +65,6 @@ namespace :load do
 
     # set :remote_cache,  'shared/cached-copy-eploy'
     set :remote_cache, -> { new_artrails_capistrano_remote_cache }
-    set :front_remote_cache, -> { new_artrails_capistrano_front_remote_cache }
     # aka repository_cache
 
     # do lokalnych adresow dostajemy sie bez proxy
@@ -185,6 +185,46 @@ end
 
 # https://github.com/capistrano-plugins/capistrano-safe-deploy-to/blob/master/lib/capistrano/tasks/safe_deploy_to.rake
 namespace :deploy do
+  task :front do
+    puts "[FRONT] updating local cache"
+    system(front_command)
+    File.open(File.join(front_local_cache, "REVISION"), "w") { |f| f.puts(front_revision) }
+    File.open(File.join(front_local_cache, "BRANCH"), "w+") { |f| f.puts(front_branch) }
+
+    server = host
+    # FIXME: find_servers(:roles => :app, :except => { :no_release => true }).each do |server|
+    on release_roles :app, exclude: :no_release do
+      system("cp #{front_local_cache}/REVISION #{front_local_cache}/dist/")
+      system("cp #{front_local_cache}/BRANCH #{front_local_cache}/dist/")
+    end
+
+    release_roles(:all).each do |role|
+
+      user = role.user || fetch(:user)
+      user = user + "@" unless user.nil?
+
+      rsync_args = []
+      rsync_args.concat fetch(:rsync_options)
+      rsync_args.concat fetch(:rsync_include, []).map{|e| "--include #{e}"}
+      rsync_args.concat fetch(:rsync_exclude, []).map{|e| "--exclude #{e}"}
+      rsync_args << fetch(:front_local_cache) + "/"
+      rsync_args << "#{user}#{role.hostname}:#{front_remote_cache.call}"
+
+      run_locally do
+        execute :rsync, *rsync_args
+      end
+
+      on roles(:app) do
+        new_artrails_capistrano_run( "chmod +r+w+x -R #{front_remote_cache.call}" ) # HACK (dopisane)
+        new_artrails_capistrano_run( "chmod g+w -R #{front_remote_cache.call}" ) # HACK (dopisane)
+        new_artrails_capistrano_run( "chgrp -R mongrel #{front_remote_cache.call}" ) # HACK (dopisane)
+
+        copy = %(#{fetch(:copy_command)} "#{front_remote_cache.call}/" "#{front_release_path}/")
+        new_artrails_capistrano_run copy
+      end
+    end
+  end
+
   Rake::Task["deploy:set_current_revision"].clear_actions
   desc "Place a REVISION file with the current revision SHA in the current release path"
   task :set_current_revision  do
