@@ -15,6 +15,10 @@ module Capistrano
         test "[ -d #{path} ]"
       end
 
+      def copy_command
+        "rsync -a --no-p --no-g --delete" # "rsync --archive --acls --xattrs"
+      end
+
       # Path to the remote cache. We use a variable name and default that are compatible with
       # the stock remote_cache strategy, for easy migration.
       def repository_cache
