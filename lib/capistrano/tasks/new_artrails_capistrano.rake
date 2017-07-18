@@ -11,10 +11,10 @@ require 'capistrano/rails/assets'
 # require 'capistrano/rails/migrations'
 require "capistrano/scm/git"
 install_plugin Capistrano::SCM::Git
+require 'cap-deploy-tagger/capistrano'
 require 'capistrano/dsl/new_artrails_capistrano_paths'
 require 'capistrano/new_artrails_capistrano/helpers'
 require 'capistrano/new_artrails_capistrano/front_helpers'
-require 'shellwords'
 
 include Capistrano::NewArtrailsCapistrano::Helpers
 include Capistrano::NewArtrailsCapistrano::FrontHelpers
@@ -483,22 +483,23 @@ namespace :deploy do
     # end
   end
 
-  task :start do
-    on roles :app do
-      new_artrails_capistrano_run "nohup #{current_path}/script/production start"
+  namespace :web_server do
+    task :start do
+      on roles :app do
+        new_artrails_capistrano_run "nohup #{current_path}/script/production start"
+      end
     end
-  end
 
-  task :stop do
-    on roles :app do
-      new_artrails_capistrano_run "nohup #{current_path}/script/production stop"
+    task :stop do
+      on roles :app do
+        new_artrails_capistrano_run "nohup #{current_path}/script/production stop"
+      end
     end
-  end
 
-  task :restart do
-    on roles :app, exclude: :no_release do
-      # passenger
-      new_artrails_capistrano_run "nohup #{current_path}/script/production restart"
+    task :restart do
+      on roles :app, exclude: :no_release do
+        new_artrails_capistrano_run "nohup #{current_path}/script/production restart"
+      end
     end
   end
 
@@ -805,23 +806,11 @@ namespace :deploy do
 end
 
 # hooks
-# -----------------------------------------------------------------------------------------------------------------------------------
-# before 'deploy:finalize_update', 'deploy:assets:symlink'
-# nowe
+before "deploy:web_server:restart", "maintenance:on"
 after 'deploy:finished', 'artrails:update_versions_html'
-after 'deploy:publishing', 'deploy:restart'
-
-# before 'deploy:updated', 'deploy:assets:symlink'
-# before "deploy:updated",  "maintenance:on" # maintenance for current version
-before "deploy:restart",      "maintenance:on" # maintenance for new version
-
-after "deploy:updated",      "artrails:symlink:config"
-# after "deploy:updated",      "artrails:symlink:uploads"
-
-# after "deploy:updated",      "deploy:cleanup"
-
+after 'deploy:publishing', 'deploy:web_server:restart'
+after "deploy:updated", "artrails:symlink:config"
 after "deploy:symlink:release",   "artrails:symlink:log"
-
 after "maintenance:on", "deploy:isItWorking:deactivate"
 after "maintenance:off", "deploy:isItWorking:activate"
 after "maintenance:off", "artrails:check_is_it_working"
