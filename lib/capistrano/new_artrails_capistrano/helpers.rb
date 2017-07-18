@@ -3,6 +3,20 @@
 module Capistrano
   module NewArtrailsCapistrano
     module Helpers
+      def backend_branch
+        fetch(:branch) || 'master'
+      end
+
+      def backend_revision
+        @backend_revision ||= `git ls-remote #{fetch(:repo_url)} #{backend_branch}`.split("\t").first
+      end
+
+      def backend_local_cache
+        application = fetch(:application)
+        # "-#{fetch(:stage)}"
+        fetch(:local_cache) || "/tmp/.#{application}_rsync_cache"
+      end
+
       def new_artrails_capistrano_sudo_as
         "#{fetch(:new_artrails_capistrano_sudo_as)}" || 'deploy'
       end

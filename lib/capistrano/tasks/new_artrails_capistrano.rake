@@ -11,13 +11,11 @@ require 'capistrano/rails/assets'
 # require 'capistrano/rails/migrations'
 require "capistrano/scm/git"
 install_plugin Capistrano::SCM::Git
-require 'capistrano/dsl/new_artrails_capistrano_paths'
 require 'capistrano/new_artrails_capistrano/helpers'
 require 'capistrano/new_artrails_capistrano/front_helpers'
 
 include Capistrano::NewArtrailsCapistrano::Helpers
 include Capistrano::NewArtrailsCapistrano::FrontHelpers
-include Capistrano::DSL::NewArtrailsCapistranoPaths
 
 remote_cache = lambda do
   cache = fetch(:remote_cache) || 'shared/cached-copy-deploy'
@@ -37,7 +35,7 @@ namespace :load do
     end
     set :rsync_include, %w[]
 
-    set :local_cache,   "/tmp/.#{fetch(:application)}-rsync_cache"
+    set :local_cache, -> { "/tmp/.#{fetch(:application)}_rsync_cache" }
 
     set :repo_url, File.expand_path('.')
 
@@ -49,7 +47,7 @@ namespace :load do
     set :rvm_ruby_version, :default      # Defaults to: 'default'
     # set :rvm_custom_path, '~/.myveryownrvm'  # only needed if not detected
 
-    set :new_artrails_capistrano_log_dir_name, -> { new_artrails_capistrano_log_dir_name }
+    set :new_artrails_capistrano_log_dir_name, -> { File.basename(fetch(:deploy_to) || fetch(:application)) }
 
     set :ssh_options, {
       keys: %w(/home/#{user}/.ssh/id_rsa),
@@ -61,7 +59,7 @@ namespace :load do
 
     set :use_sudo, false
 
-    set :remote_cache, -> { new_artrails_capistrano_remote_cache }
+    set :remote_cache, -> { "shared/cached-copy-#{fetch(:local_user) || 'deploy'}" }
 
     # no proxy for localhost
     set :proxy_host, nil # e.g. 'proxy.non.3dart.com'
@@ -74,6 +72,22 @@ namespace :load do
 end
 
 namespace :artrails do
+  task :set_current_revision do
+    on roles :app, exclude: :no_release do |task|
+      run_locally do
+        File.open(File.join(backend_local_cache, 'REVISION'), 'w') { |f| f.puts(backend_revision) }
+        File.open(File.join(backend_local_cache, 'BRANCH'), 'w+') { |f| f.puts(backend_branch) }
+
+        # FIXME:
+        # find_servers(:roles => :app, :except => { :no_release => true }).each do |server|
+        server = host
+
+        system("mkdir -p #{backend_local_cache}")
+        system("cp #{backend_local_cache}/REVISION #{backend_local_cache}/")
+        system("cp #{backend_local_cache}/BRANCH #{backend_local_cache}/")
+      end
+    end
+  end
   task :update_versions_html do
     on roles :app, exclude: :no_release do |task|
       versions_file = "#{shared_path}/versions.html"
@@ -82,7 +96,10 @@ namespace :artrails do
         sudo -iu #{new_artrails_capistrano_sudo_as} touch #{versions_file} &&
         sudo -iu #{new_artrails_capistrano_sudo_as} chmod g+w #{versions_file} &&
         sudo -iu #{new_artrails_capistrano_sudo_as} chgrp mongrel #{versions_file} &&
-        echo "#{revision_log_message_cleaned}<br />" >> #{versions_file} &&
+        echo "#{revision_log_message_cleaned}<br />"|cat - #{versions_file} > /tmp/#{fetch(:application)}_#{fetch(:stage)}_versions.html &&
+        chmod g+rw /tmp/#{fetch(:application)}_#{fetch(:stage)}_versions.html &&
+        chmod g+rw /tmp/#{fetch(:application)}_#{fetch(:stage)}_versions.html &&
+        sudo -iu #{new_artrails_capistrano_sudo_as} cp /tmp/#{fetch(:application)}_#{fetch(:stage)}_versions.html #{versions_file} &&
         sudo -iu #{new_artrails_capistrano_sudo_as} ln -fs #{versions_file} #{release_path}/public/versions.html
       CMD
       new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
@@ -183,16 +200,24 @@ namespace :deploy do
     on roles :app, exclude: :no_release do
       puts '[FRONT] updating local cache'
       system(front_command)
-      File.open(File.join(front_local_cache, 'REVISION'), 'w') { |f| f.puts(front_revision) }
-      File.open(File.join(front_local_cache, 'BRANCH'), 'w+') { |f| f.puts(front_branch) }
+
+      File.open(File.join(front_local_cache, "REVISION"), "w") { |f| f.puts(backend_revision) }
+      File.open(File.join(front_local_cache, "BRANCH"), "w") { |f| f.puts(backend_branch) }
+
+      File.open(File.join(front_local_cache, 'FRONT_REVISION'), 'w') { |f| f.puts(front_revision) }
+      File.open(File.join(front_local_cache, 'FRONT_BRANCH'), 'w+') { |f| f.puts(front_branch) }
 
       # FIXME:
       # find_servers(:roles => :app, :except => { :no_release => true }).each do |server|
       server = host
 
       system("mkdir -p #{front_local_cache}/#{front_dist_dir_name}")
+
       system("cp #{front_local_cache}/REVISION #{front_local_cache}/#{front_dist_dir_name}/")
       system("cp #{front_local_cache}/BRANCH #{front_local_cache}/#{front_dist_dir_name}/")
+
+      system("cp #{front_local_cache}/FRONT_REVISION #{front_local_cache}/#{front_dist_dir_name}/")
+      system("cp #{front_local_cache}/FRONT_BRANCH #{front_local_cache}/#{front_dist_dir_name}/")
 
       release_roles(:all).each do |role|
         user = role.user || fetch(:user)
@@ -223,19 +248,30 @@ namespace :deploy do
   end
 
   Rake::Task["deploy:set_current_revision"].clear_actions
-  desc "Place a REVISION file with the current revision SHA in the current release path"
+  desc "Place a REVISION file with the current revision SHA in the current release path and a BRANCH file with name"
   task :set_current_revision  do
     on release_roles(:all) do
-      # NOTE: echo called twice on purpose, because only that way it works...
-      cmd =<<-CMD
-        sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} bash -c "
-        echo '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
-        echo -e '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
-        chmod g+w -R #{release_path}/REVISION &&
-        chgrp #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/REVISION
-        "
-      CMD
-      new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
+      # NOTE: cannot use this with :front deployment
+      # # NOTE: echo called twice on purpose, because only that way it works...
+      # cmd =<<-CMD
+      #   sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} bash -c "
+      #   echo '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
+      #   echo -e '#{fetch(:current_revision)}' > #{release_path}/REVISION &&
+      #   chmod g+w -R #{release_path}/REVISION &&
+      #   chgrp #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/REVISION
+      #   "
+      # CMD
+      # new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
+      # # NOTE: echo called twice on purpose, because only that way it works...
+      # cmd =<<-CMD
+      #   sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} bash -c "
+      #   echo '#{fetch(:branch)}' > #{release_path}/BRANCH &&
+      #   echo -e '#{fetch(:branch)}' > #{release_path}/BRANCH &&
+      #   chmod g+w -R #{release_path}/BRANCH &&
+      #   chgrp #{fetch(:new_artrails_capistrano_sudo_as)} #{release_path}/BRANCH
+      #   "
+      # CMD
+      # new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
     end
   end
 
@@ -472,7 +508,7 @@ namespace :deploy do
               source\\\\ '/usr/local/rvm/scripts/rvm' &&
               cd #{release_path} &&
               RAILS_ENV=#{fetch(:rails_env)} #{fetch(:asset_env)} bundle exec rake assets:precompile &&
-              chmod g+w -R  #{shared_path}/public/#{fetch(:assets_prefix)} &&
+              chmod g+w -R #{shared_path}/public/#{fetch(:assets_prefix)} &&
               chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/public/#{fetch(:assets_prefix)}
               "
             CMD
@@ -481,24 +517,6 @@ namespace :deploy do
         end
       end
     end
-
-    # TODO: https://github.com/capistrano/rails/blob/master/lib/capistrano/tasks/assets.rake
-    # more tasks...
-
-    # task :clean do
-    #   on roles :web, exclude: :no_release do
-    #     cmd =<<-CMD
-    #       sudo -iu #{fetch(:new_artrails_capistrano_sudo_as)} sh -c "
-    #       source '/usr/local/rvm/scripts/rvm' &&
-    #       cd #{fetch(:latest_release_directory)} &&
-    #       RAILS_ENV=#{fetch(:rails_env)} #{fetch(:asset_env)} #{rake} assets:clean &&
-    #       chmod g+w -R  #{shared_path}/assets &&
-    #       chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{shared_path}/assets
-    #       "
-    #     CMD
-    #     new_artrails_capistrano_run cmd.gsub(/\r?\n/, '').gsub(/\s+/, ' ')
-    #   end
-    # end
   end
 
   namespace :web_server do
@@ -521,68 +539,47 @@ namespace :deploy do
     end
   end
 
-# TODO # FIXME: override
+  # custom task
   task :setup do # |task|
     on roles :app, exclude: :no_release do
-      # setup directories
       dirs = [deploy_to, releases_path, shared_path]
-      # https://stackoverflow.com/a/4380894
-      # FIXME: undefined
-      # shared_children = %w(public/system log tmp/pids)
-      # dirs += shared_children.map { |d| File.join(shared_path, d) }
       dirs += fetch(:linked_dirs).map { |d| File.join(shared_path, d) }
       new_artrails_capistrano_run "mkdir -p #{dirs.join(' ')}"
-
-      # setup default configs
-##############################################
-      # FIXME: undefined
-      # current_task = task.name_with_args
-      #require 'byebug'
-      #byebug
       # FIXME:
       # servers = find_servers_for_task(current_task)
       # servers.each do |server|
       server = host
-        # FIXME:
-        # config_files.each do |cf|
-        fetch(:new_artrails_capistrano_config_files).each do |cf|
-          new_artrails_capistrano_run("mkdir -p #{shared_path}/config")
-          if file_exists?("#{shared_path}/config/#{cf}")
-            puts "Skip. File exists: #{shared_path}/config/#{cf}"
-          else
-            new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
-            new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
-            cf_path = "#{local_user}@#{server}:#{shared_path}/config/#{cf}"
-            puts "scp config/#{cf} #{cf_path}"
-            system("scp config/#{cf} #{cf_path}")
-          end
+      fetch(:new_artrails_capistrano_config_files).each do |cf|
+        new_artrails_capistrano_run("mkdir -p #{shared_path}/config")
+        if file_exists?("#{shared_path}/config/#{cf}")
+          puts "Skip. File exists: #{shared_path}/config/#{cf}"
+        else
+          new_artrails_capistrano_run("touch #{shared_path}/config/#{cf}")
+          new_artrails_capistrano_run("chmod g+rw #{shared_path}/config/#{cf}")
+          cf_path = "#{local_user}@#{server}:#{shared_path}/config/#{cf}"
+          puts "scp config/#{cf} #{cf_path}"
+          system("scp config/#{cf} #{cf_path}")
         end
-      # end
-
-      # setup pids
-      # FIXME: j.w.
+      end
+      # FIXME:
       # servers = find_servers_for_task(current_task)
       # servers.each do |server|
-      # CUSTOM DIR!
-        new_artrails_capistrano_run("mkdir -p #{shared_path}/pids")
-      # end
 
-      # uprawnienia
-      #unless dir_exists?(deploy_to)
-        if revision_log.to_s[/\.log\z/]
-          new_artrails_capistrano_run "pwd && rm -rf #{revision_log}" # don't reject command below
-        end
-        if rsync_remote_cache.to_s[/cached\-copy\-/]
-          new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{rsync_remote_cache}" # don't reject command below
-        end
-        if front_rsync_remote_cache.to_s[/cached\-copy\-/]
-          new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{front_rsync_remote_cache}" # don't reject command below
-        end
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod -R g+rw #{deploy_to}"
-        new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
-      #end
+      # obsolete
+      # new_artrails_capistrano_run("mkdir -p #{shared_path}/pids")
 
-      # rsync_remote_cache
+      if revision_log.to_s[/\.log\z/]
+        new_artrails_capistrano_run "pwd && rm -rf #{revision_log}" # don't reject command below
+      end
+      if rsync_remote_cache.to_s[/cached\-copy\-/]
+        new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{rsync_remote_cache}" # don't reject command below
+      end
+      if front_rsync_remote_cache.to_s[/cached\-copy\-/]
+        new_artrails_capistrano_run "pwd && rm -rf #{deploy_to}/#{front_rsync_remote_cache}" # don't reject command below
+      end
+      new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod -R g+rw #{deploy_to}"
+      new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chgrp -R #{fetch(:new_artrails_capistrano_sudo_as)} #{deploy_to}"
+
       unless file_exists?("#{deploy_to}/#{rsync_remote_cache}")
         new_artrails_capistrano_run "sudo -u #{fetch(:new_artrails_capistrano_sudo_as)} chmod g+w -R #{shared_path}"
         new_artrails_capistrano_run "pwd && mkdir -p #{deploy_to}/#{rsync_remote_cache}"
@@ -590,16 +587,10 @@ namespace :deploy do
         new_artrails_capistrano_run "chmod g+w #{deploy_to}/#{rsync_remote_cache}"
       end
 
-      # log
+      # prepare custom log dir for symlink
       new_artrails_capistrano_run "mkdir -p /var/log/#{fetch(:new_artrails_capistrano_sudo_as)}/#{fetch(:new_artrails_capistrano_log_dir_name)}"
     end
   end
-
-
-
-
-
-
 
   namespace :git do
     desc "Upload the git wrapper script, this script guarantees that we can script git without getting an interactive prompt"
@@ -652,7 +643,7 @@ namespace :deploy do
     end
 
     task :create_cache do
-      next if File.directory?(File.expand_path(fetch(:local_cache)))  # TODO: check if it's actually our repo instead of assuming
+      next if File.directory?(File.expand_path(fetch(:local_cache) + '/.git'))
       run_locally do
         execute :git, 'clone', fetch(:repo_url), fetch(:local_cache)
       end
@@ -686,18 +677,10 @@ namespace :deploy do
           execute :rsync, *rsync_args
         end
 
-        # Step 4: Copy the remote cache into place.
         on roles(:app) do
-          # instead of set_current_revision
-          # too early to do that
-          # new_artrails_capistrano_run("echo #{fetch(:current_revision)} > #{release_path}/REVISION")
-
-          new_artrails_capistrano_run( "chmod +r+w+x -R #{remote_cache.call}" ) # HACK (dopisane)
-          new_artrails_capistrano_run( "chmod g+w -R #{remote_cache.call}" ) # HACK (dopisane)
-          new_artrails_capistrano_run( "chgrp -R mongrel #{remote_cache.call}" ) # HACK (dopisane)
-
-          # instead of copy_command
-          # new_artrails_capistrano_run("rsync -a --delete #{remote_cache.call}/ #{release_path}/")
+          new_artrails_capistrano_run( "chmod +r+w+x -R #{remote_cache.call}" )
+          new_artrails_capistrano_run( "chmod g+w -R #{remote_cache.call}" )
+          new_artrails_capistrano_run( "chgrp -R mongrel #{remote_cache.call}" )
         end
       end
     end
@@ -706,9 +689,7 @@ namespace :deploy do
     task :release => [ :sync ] do
       copy = %(#{copy_command} "#{remote_cache.call}/" "#{release_path}/")
       on release_roles(:all) do
-        # execute copy
         new_artrails_capistrano_run copy
-        # puts 'Doing nothing'
       end
     end
 
@@ -725,7 +706,6 @@ namespace :deploy do
     # end
     task create_release: [:release] do
       # expected by the framework, delegate to better named task
-      # run "mkdir -p #{fetch :releases_path}"
     end
 
     Rake::Task['git:set_current_revision'].clear_actions
@@ -747,83 +727,10 @@ namespace :deploy do
       end
     end
   end
-
-
-
-
-
-
-
-
-
-
-
-
-
-  # #-------------------------------------------------
-  # task :check do
-  #   # legacy
-  #   # nothing to check, but expected by framework
-  # end
-  #
-  # task :create_cache do
-  #   next if File.directory?(File.expand_path(fetch(:local_cache))) # TODO: check if it's actually our repo instead of assuming
-  #   run_locally do
-  #     execute :git, 'clone', fetch(:repo_url), fetch(:local_cache)
-  #   end
-  # end
-  #
-  # desc 'stage the repository in a local directory'
-  # task stage: [:create_cache] do
-  #   run_locally do
-  #     within fetch(:local_cache) do
-  #       execute :git, 'fetch', '--quiet', '--all', '--prune'
-  #       execute :git, 'reset', '--hard', "origin/#{fetch(:branch)}"
-  #     end
-  #   end
-  # end
-  #
-  # desc 'stage and rsync to the server'
-  # task sync: [:stage] do
-  #   release_roles(:all).each do |role|
-  #     user = role.user || fetch(:user)
-  #     user += '@' unless user.nil?
-  #
-  #     rsync_args = []
-  #     rsync_args.concat fetch(:rsync_options)
-  #     rsync_args.concat fetch(:rsync_include, []).map { |e| "--include #{e}" }
-  #     rsync_args.concat fetch(:rsync_exclude, []).map { |e| "--exclude #{e}" }
-  #     rsync_args << fetch(:local_cache) + '/'
-  #     rsync_args << "#{user}#{role.hostname}:#{remote_cache.call}"
-  #
-  #     run_locally do
-  #       execute :rsync, *rsync_args
-  #     end
-  #   end
-  # end
-  #
-  # desc 'stage, rsync to the server, and copy the code to the releases directory'
-  # task release: [:sync] do
-  #   copy = %(#{fetch(:copy_command)} "#{remote_cache.call}/" "#{release_path}/")
-  #   on release_roles(:all) do
-  #     execute copy
-  #   end
-  # end
-  #
-  # task create_release: [:release] do
-  #   # expected by the framework, delegate to better named task
-  #   # run "mkdir -p #{fetch :releases_path}"
-  # end
-  #
-  # task :set_current_revision do
-  #   legacy
-  #   run_locally do
-  #     set :current_revision, capture(:git, 'rev-parse', fetch(:branch))
-  #   end
-  # end
 end
 
 # hooks
+before 'deploy:updating', "artrails:set_current_revision"
 before "deploy:web_server:restart", "maintenance:on"
 after 'deploy:finished', 'artrails:update_versions_html'
 after 'deploy:publishing', 'deploy:web_server:restart'
