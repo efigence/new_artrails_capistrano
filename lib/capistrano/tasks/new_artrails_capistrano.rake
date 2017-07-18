@@ -11,7 +11,6 @@ require 'capistrano/rails/assets'
 # require 'capistrano/rails/migrations'
 require "capistrano/scm/git"
 install_plugin Capistrano::SCM::Git
-require 'cap-deploy-tagger/capistrano'
 require 'capistrano/dsl/new_artrails_capistrano_paths'
 require 'capistrano/new_artrails_capistrano/helpers'
 require 'capistrano/new_artrails_capistrano/front_helpers'
