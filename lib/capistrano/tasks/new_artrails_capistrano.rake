@@ -69,6 +69,8 @@ namespace :load do
     set :proxy_port, nil # e.g. '3128'
 
     set :app_address, nil
+
+    set :skip_deploy_tagging, true
   end
 end
 
@@ -161,6 +163,23 @@ namespace :maintenance do
 end
 
 namespace :deploy do
+  desc "Tag deployed release"
+  task :tag do
+    run_locally do
+      if ENV['SKIP_DEPLOY_TAGGING'] || fetch(:skip_deploy_tagging, false)
+        info "Skipped deploy tagging"
+      else
+        tag_name = "#{fetch(:deploy_tag, "deployed")}_#{fetch(:stage)}"
+        latest_revision = fetch(:current_revision)
+        unless fetch(:sshkit_backend) ==  SSHKit::Backend::Printer # unless --dry-run flag present
+          execute :git, "tag -f #{tag_name} #{latest_revision}"
+          execute :git, "push -f --tags"
+        end
+        info "Tagged #{latest_revision} with #{tag_name}"
+      end
+    end
+  end
+
   task :front do
     on roles :app, exclude: :no_release do
       puts '[FRONT] updating local cache'
@@ -814,3 +833,4 @@ after "deploy:symlink:release",   "artrails:symlink:log"
 after "maintenance:on", "deploy:isItWorking:deactivate"
 after "maintenance:off", "deploy:isItWorking:activate"
 after "maintenance:off", "artrails:check_is_it_working"
+after "deploy:cleanup", "deploy:tag"
