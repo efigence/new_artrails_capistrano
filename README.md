@@ -1,12 +1,8 @@
-# Capistrano [![Gem Version](https://badge.fury.io/rb/new_artrails_capistrano.svg)](https://badge.fury.io/rb/new_artrails_capistrano) [![Build Status](https://travis-ci.org/efigence/new_artrails_capistrano.svg?branch=master)](https://travis-ci.org/efigence/new_artrails_capistrano) [![Coverage Status](https://coveralls.io/repos/github/efigence/new_artrails_capistrano/badge.svg?branch=master)](https://coveralls.io/github/efigence/new_artrails_capistrano?branch=master) [![Code Climate](https://codeclimate.com/github/efigence/new_artrails_capistrano/badges/gpa.svg)](https://codeclimate.com/github/efigence/new_artrails_capistrano)
+# Capistrano [![Gem Version](https://badge.fury.io/rb/new_artrails_capistrano.svg)](https://badge.fury.io/rb/new_artrails_capistrano) [![Build Status](https://travis-ci.org/efigence/new_artrails_capistrano.svg?branch=master)](https://travis-ci.org/efigence/new_artrails_capistrano) [![Coverage Status](https://coveralls.io/repos/github/efigence/new_artrails_capistrano/badge.svg?branch=master)](https://coveralls.io/github/efigence/new_artrails_capistrano?branch=master)
 
 Capistrano 3 deployment using Rsync, a local Git repository and sudo as user.
 
 This gem is a viable alternative to Git deployments on production machines. Commands can be run under a different user than the `deploy` user.
-
-## Dependencies
-
-* None
 
 ## Installation
 
@@ -28,11 +24,6 @@ And then execute:
 Or install it yourself as:
 
     $ gem install new_artrails_capistrano
-
-## Usage
-
-```
-```
 
 ## Development
 
