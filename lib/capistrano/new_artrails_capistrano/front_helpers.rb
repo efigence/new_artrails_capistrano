@@ -8,13 +8,14 @@ module Capistrano
         fetch(:front_branch) || 'master'
       end
 
-      def new_artrails_capistrano_front_remote_cache
-        "shared/front-cached-copy-#{fetch(:local_user) || 'deploy'}"
+      def front_rsync_remote_cache
+        fetch(:front_remote_cache) || "shared/front-cached-copy-#{fetch(:local_user) || 'deploy'}"
       end
 
       def front_local_cache
         front_application = fetch(:front_application)
-        fetch(:front_local_cache) || "/tmp/.#{front_application}_rsync_cache" # ".front_rsync_cache-#{fetch(:stage)}"
+        # "-#{fetch(:stage)}"
+        fetch(:front_local_cache) || "/tmp/.#{front_application}_rsync_cache"
       end
 
       def front_rsync_credentials
@@ -24,7 +25,6 @@ module Capistrano
       def front_dist_dir_name
         fetch(:front_dist_dir_name) || 'dist'
       end
-
 
       def front_rsync_options
         fetch(:front_rsync_options) || fetch(:rsync_options)
@@ -49,7 +49,7 @@ module Capistrano
         end
         "rsync -a --no-p --no-g --delete#{keep_string}"
       end
-#????
+
       def front_revision
         @front_revision ||= `git ls-remote #{fetch(:front_repo_url)} #{front_branch}`.split("\t").first
       end
@@ -57,7 +57,6 @@ module Capistrano
       def front_release_path
         File.join(release_path, 'public')
       end
-#  ????
 
       def front_install_command
         fetch(:front_install_command) ||
@@ -106,7 +105,7 @@ module Capistrano
 
       def front_remote_cache
         lambda do
-          cache = new_artrails_capistrano_front_remote_cache
+          cache = front_rsync_remote_cache
           cache = deploy_to + '/' + cache if cache && cache !~ /^\//
           cache
         end

@@ -16,13 +16,11 @@ module Capistrano
       end
 
       def copy_command
-        "rsync -a --no-p --no-g --delete" # "rsync --archive --acls --xattrs"
+        "rsync -a --no-p --no-g --delete"
       end
 
-      # Path to the remote cache. We use a variable name and default that are compatible with
-      # the stock remote_cache strategy, for easy migration.
-      def repository_cache
-        fetch(:remote_cache) || 'shared/cached-copy-deploy'
+      def rsync_remote_cache
+        fetch(:remote_cache) || "shared/cached-copy-#{fetch(:local_user) || 'deploy'}"
       end
 
       def new_artrails_capistrano_detect_manifest_path
@@ -53,7 +51,6 @@ module Capistrano
       end
 
       def new_artrails_capistrano_run(cmd, options={}, &block)
-        # BEGIN: hack, invoke almost *all* commands as mongrel user
         if cmd.include?('db:migrate')
           c = cmd.split(';')
 
@@ -69,7 +66,6 @@ module Capistrano
           cmd = "sudo -u #{new_artrails_capistrano_sudo_as} " + cmd
         end
 
-        #if cmd.strip[0..2] != 'cd '  &&
         if cmd.strip[0..3] != 'pwd '  &&
           !cmd.include?( 'sudo' )  &&
           !cmd.include?( 'chmod +r+w+x' )  &&
@@ -85,9 +81,7 @@ module Capistrano
 
           cmd = "sudo -i -u #{new_artrails_capistrano_sudo_as} " + cmd
         end
-        # END: hack
 
-        # run_without_sudo(cmd, options, &block)
         execute(cmd, options, &block)
       end
     end
